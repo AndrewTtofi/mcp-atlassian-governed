@@ -1,9 +1,8 @@
 # mcp-atlassian-governed
 
-> **Status: phase 5 of 6.** Sign-in, per-user Atlassian account linking, read and write
-> tools, an audit record per call and per-user rate limits are built. Atlassian itself is
-> a stand-in in the tests so far; nothing has been run against a real site yet. The
-> phases are in [PLAN.md](PLAN.md).
+> **Status:** all six phases are built and tested. Sign-in runs against a real identity
+> provider in CI. **Atlassian is a stand-in in the tests: nothing has been run against a
+> real Atlassian site yet.** "What's real vs. mocked" below says exactly which is which.
 
 **An MCP server for Jira and Confluence where the agent acts as the signed-in user**, with
 that user's own permissions, instead of through one shared admin token.
@@ -30,30 +29,29 @@ needs a confirmation the model cannot give.
 ## Architecture
 
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as MCP client (assistant)
-    participant M as This server
-    participant I as Identity provider
-    participant A as Atlassian
-    C->>M: tool call, no token
-    M-->>C: 401, and where to sign in
-    C->>I: sign in (OAuth 2.1 + PKCE): a token for this server only
-    C->>M: tool call + token
-    M->>M: verify signature, audience, scope
-    Note over M,A: first use only
-    M-->>U: link your Atlassian account
-    U->>A: consent
-    A-->>M: this user's grant (stored encrypted)
-    M->>A: call as that user
-    A-->>M: only what that user may see
-    M-->>C: result
+flowchart LR
+    C["MCP client<br/>(assistant)"] -->|"Bearer token"| G
+
+    subgraph S["This server"]
+        G["Token check"] --> W["Write-scope gate"]
+        W --> A["Audit and limits"]
+        A --> P["Policy"]
+        P --> T["Tool:<br/>validate, confirm,<br/>call as the user"]
+    end
+
+    I["Identity provider"] -.->|"keys"| G
+    P -.->|"may this user use this tool?"| GW["AI gateway"]
+    T -->|"the user's own token"| AT["Jira · Confluence"]
+    T -.-> DB[("SQLite<br/>grants, encrypted<br/>audit")]
 ```
 
 There are two grants per user, on purpose. The MCP authorization specification forbids a
 server from passing a caller's token on to another service, so the token that says *who
 is calling* and the grant that says *what they may reach in Atlassian* are separate
 ([decision record 0001](docs/decisions/0001-a-separate-mcp-server-acting-as-the-user.md)).
+
+[docs/architecture.md](docs/architecture.md) walks through each check, the two grants,
+what is stored and what is trusted.
 
 ## Tools
 
@@ -136,6 +134,14 @@ make idp-e2e            # the whole flow in a throwaway stack, with its checks
 5. `make idp`. The first Jira or Confluence call from a user returns a link; they open
    it, sign in, consent at Atlassian, and call again.
 
+### Govern it with the AI gateway
+
+With [ai-gateway](https://github.com/AndrewTtofi/ai-gateway) running, set `GATEWAY_URL`
+and `GATEWAY_KEY` (a gateway key in the group its policy lets ask: `make key
+name=mcp-atlassian tier=standard team=mcp-servers`, in the gateway's repo). Every tool
+call is then put to the gateway's policy first and recorded in its decision log under the
+user's name. If the gateway doesn't answer, the call is refused.
+
 `make idp-e2e` creates a user in the identity provider, gets a real token for them, calls
 the tool with it, and then shows the tokens that must not work: one without the scope
 (403), one issued for another application (401), and a tampered one (401).
@@ -156,6 +162,7 @@ the tool with it, and then shows the tokens that must not work: one without the 
 | Jira and Confluence read tools | **Real code, mocked Atlassian.** Never run against a real site yet. Scopes and response shapes are the likeliest surprises |
 | Write and destructive tools | **Real code, mocked Atlassian.** The allow-list, the scope challenge and the confirmation are exercised with the SDK's own client; the calls to Jira go to the stand-in |
 | The confirmation | **Real**, by the MCP SDK: the question is sent to the client, not answered by the model. A client that answers confirmations automatically would defeat it; that is the client's choice to make |
+| Governed by the AI gateway's policy | **Real client, tested against a stand-in** for the gateway's `POST /v1/authorize`; the gateway's side is tested in [its own repo](https://github.com/AndrewTtofi/ai-gateway). The two have not been run together |
 | Audit record and rate limits | **Real.** A row and a log line per call, without content; per-user limits in memory |
 
 ## Design decisions and trade-offs
@@ -203,6 +210,11 @@ kind, how it ended. *Trade-off:* it can show that a comment was deleted and by w
 what it said; that is in Jira's own history.
 ([0005](docs/decisions/0005-audit-record-and-rate-limits.md))
 
+**Policy is asked of the gateway, not copied here.** With a gateway configured, every tool
+call is a question to it first, and anything but a clear yes is a no, including an
+outage. *Trade-off:* the gateway is on the path of every call.
+([0006](docs/decisions/0006-governed-by-the-gateways-policy.md))
+
 **The identity provider is someone else's job.** The server verifies tokens; it doesn't
 issue them, hold passwords or show consent screens. *Trade-off:* it inherits the
 provider's gaps. authentik can't register clients by metadata document or bind a token to
@@ -234,7 +246,7 @@ make audit     # known vulnerabilities in the lockfile
 make idp-e2e   # the auth flow against a real identity provider
 ```
 
-Operating it: [docs/runbook.md](docs/runbook.md).
+Operating it: [docs/runbook.md](docs/runbook.md). What can be shown today: [docs/demo.md](docs/demo.md).
 
 ## License
 
