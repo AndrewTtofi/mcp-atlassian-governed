@@ -1,0 +1,106 @@
+# authentik blueprint: the identity provider's side of decision record 0002, as code.
+# Mounted into the authentik worker by docker-compose.idp.yml and applied at startup.
+#
+# It creates:
+#   - two scopes, `atlassian:read` and `atlassian:write`;
+#   - an OAuth2 provider and application for this MCP server. Tokens it issues carry
+#     `aud: mcp-atlassian`, which is how the server knows a token was issued for it;
+#   - a second, unrelated application, only so the end-to-end test can show that a valid
+#     token for something else is refused.
+#
+# Users are not created here: they are the directory's content.
+version: 1
+metadata:
+  name: MCP Atlassian - OAuth2 application and scopes
+entries:
+  # The flows, scope mappings and signing key below ship with authentik; make sure their
+  # blueprints are applied before this one looks them up.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers: { name: "Default - Provider authorization flow (explicit consent)" }
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers: { name: "Default - Provider invalidation flow" }
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers: { name: "System - OAuth2 Provider - Scopes" }
+      required: true
+
+  # A scope is only a name the user consents to; it adds no claims.
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-read
+    identifiers: { name: "MCP Atlassian: read" }
+    attrs:
+      scope_name: "atlassian:read"
+      description: "Read Jira issues and Confluence pages as you"
+      expression: "return {}"
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-write
+    identifiers: { name: "MCP Atlassian: write" }
+    attrs:
+      scope_name: "atlassian:write"
+      description: "Create and change Jira issues and comments as you"
+      expression: "return {}"
+
+  - model: authentik_providers_oauth2.oauth2provider
+    id: mcp
+    identifiers:
+      name: mcp-atlassian
+    attrs:
+      # Explicit consent: the user sees which scopes the assistant is asking for.
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-explicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # MCP clients are apps on a user's machine: they can't keep a secret, so they are
+      # public clients and prove themselves with PKCE instead.
+      client_type: public
+      client_id: mcp-atlassian   # also the tokens' `aud`: the server's OIDC_AUDIENCE
+      # Without a signing key authentik signs with a shared secret (HS256), which the
+      # server refuses: it accepts asymmetric signatures only.
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      # authorization_code (+ refresh) is what an MCP client uses, in a browser.
+      # client_credentials is for scripts and the end-to-end test: a user's app password.
+      grant_types: [authorization_code, refresh_token, client_credentials]
+      # Native clients listen on a loopback port of their choosing for the redirect.
+      redirect_uris:
+        - { matching_mode: regex, url: "^http://(localhost|127\\.0\\.0\\.1)(:\\d+)?/.*$" }
+      access_token_validity: minutes=10
+      sub_mode: hashed_user_id
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+        - !KeyOf scope-read
+        - !KeyOf scope-write
+
+  - model: authentik_core.application
+    identifiers:
+      slug: mcp-atlassian
+    attrs:
+      name: Jira and Confluence (MCP)
+      provider: !KeyOf mcp
+
+  # Another application at the same identity provider. Its tokens are valid, and not for
+  # this server.
+  - model: authentik_providers_oauth2.oauth2provider
+    id: other
+    identifiers:
+      name: some-other-app
+    attrs:
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-explicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      client_type: public
+      client_id: some-other-app
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      grant_types: [client_credentials]
+      redirect_uris: []
+      sub_mode: hashed_user_id
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !KeyOf scope-read
+  - model: authentik_core.application
+    identifiers:
+      slug: some-other-app
+    attrs:
+      name: Some other app
+      provider: !KeyOf other
