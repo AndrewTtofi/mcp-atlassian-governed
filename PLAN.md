@@ -11,10 +11,11 @@ what changed. Decisions are recorded in `docs/decisions/`.
 - [x] CI: lint, types, tests, dependency audit, the container end to end.
 
 ### Phase 2 — The server as an OAuth resource server (`phase-2-resource-server`)
-- [ ] Protected resource metadata (`/.well-known/oauth-protected-resource`).
-- [ ] 401 with `WWW-Authenticate` pointing at it; 403 `insufficient_scope` with the scope needed.
-- [ ] Access tokens verified: signature, issuer, audience (this server only), expiry, scope.
-- [ ] An identity provider in the compose stack, and an end-to-end test against it.
+- [x] Protected resource metadata (`/.well-known/oauth-protected-resource`).
+- [x] 401 with `WWW-Authenticate` pointing at it; 403 `insufficient_scope` with the scope needed.
+- [x] Access tokens verified: signature, issuer, audience (this server only), expiry, scope.
+- [x] An identity provider in the compose stack, and an end-to-end test against it.
+- [ ] The browser sign-in (authorization code + PKCE) driven by a real MCP client.
 
 ### Phase 3 — Atlassian account linking and read tools (`phase-3-atlassian-read`)
 Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
