@@ -1,0 +1,49 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+# Least privilege: the token can only read the repo. No secrets are used, so PRs from
+# forks run with nothing worth stealing.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Actions pinned to commit SHAs (a tag can be moved; a SHA can't). Dependabot bumps them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements-dev.txt }
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - run: make lint
+      - run: make test
+      - name: known vulnerabilities in the locked dependencies
+        run: make audit
+      - name: lockfiles match requirements
+        run: make lock && git diff --exit-code -- requirements.txt requirements-dev.txt
+
+  # The container as it ships: built, started, healthy, and answering MCP over HTTP.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - run: docker compose up -d --build --wait
+      - name: the server answers
+        run: |
+          curl -sf localhost:8080/healthz
+          curl -sf localhost:8080/mcp -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | grep -q mcp-atlassian-governed
+      - if: always()
+        run: docker compose logs mcp && docker compose down

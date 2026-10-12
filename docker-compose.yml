@@ -1,0 +1,13 @@
+# The dev stack. The port binds to 127.0.0.1 only: nothing here should face a network.
+services:
+  mcp:
+    build: .
+    env_file: [{ path: .env, required: false }]
+    environment:
+      HOST: 0.0.0.0        # inside the container; the published port below limits who can reach it
+      PORT: "8080"
+    ports: ["127.0.0.1:8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]

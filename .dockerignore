@@ -1,0 +1,9 @@
+.venv
+.git
+.env
+.env.*
+tests
+docs
+__pycache__
+*.sqlite3
+*.pem
