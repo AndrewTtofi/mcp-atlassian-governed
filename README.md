@@ -1,8 +1,8 @@
 # mcp-atlassian-governed
 
-> **Status: phase 2 of 6.** The server is an OAuth resource server: it accepts only
-> tokens an identity provider issued for it. It has one tool and nothing behind it yet.
-> Jira and Confluence come next. The phases are in [PLAN.md](PLAN.md).
+> **Status: phase 3 of 6.** Sign-in, per-user Atlassian account linking and four read
+> tools are built. Atlassian itself is a stand-in in the tests so far; nothing has been
+> run against a real site yet. Write tools come next. The phases are in [PLAN.md](PLAN.md).
 
 **An MCP server for Jira and Confluence where the agent acts as the signed-in user**, with
 that user's own permissions, instead of through one shared admin token.
@@ -54,8 +54,19 @@ server from passing a caller's token on to another service, so the token that sa
 is calling* and the grant that says *what they may reach in Atlassian* are separate
 ([decision record 0001](docs/decisions/0001-a-separate-mcp-server-acting-as-the-user.md)).
 
-Today the left half of the diagram exists: the client, this server and the identity
-provider. Atlassian is not connected yet.
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `jira_search` | Issues matching a JQL query |
+| `jira_get_issue` | One issue: status, people, description |
+| `confluence_search` | Pages matching a CQL query |
+| `confluence_get_page` | One page: title, space, text |
+| `server_status` | Who you are signed in as, and whether your Atlassian account is linked |
+
+All four Atlassian tools only read, and return only what the calling user could open
+themselves. The first call from a user who hasn't linked their account returns a link to
+do it.
 
 ## Quickstart
 
@@ -97,6 +108,19 @@ curl -si localhost:8080/mcp -X POST | grep -i www-authenticate
 make idp-e2e            # the whole flow in a throwaway stack, with its checks
 ```
 
+### Connect Atlassian
+
+1. Create an OAuth 2.0 (3LO) app in the [Atlassian developer console](https://developer.atlassian.com/console/myapps/)
+   (**Create** → **OAuth 2.0 integration**).
+2. Under **Permissions**, add the Jira API (`read:jira-work`, `read:jira-user`), the
+   Confluence API (`read:confluence-content.all`, `search:confluence`) and the User
+   identity API (`read:me`).
+3. Under **Authorization**, set the callback URL to `http://localhost:8080/atlassian/callback`.
+4. In `.env`, set `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET` (from **Settings**),
+   and `TOKEN_ENCRYPTION_KEY` (generate one with `python -m app.store`).
+5. `make idp`. The first Jira or Confluence call from a user returns a link; they open
+   it, sign in, consent at Atlassian, and call again.
+
 `make idp-e2e` creates a user in the identity provider, gets a real token for them, calls
 the tool with it, and then shows the tokens that must not work: one without the scope
 (403), one issued for another application (401), and a tampered one (401).
@@ -113,7 +137,9 @@ the tool with it, and then shows the tokens that must not work: one without the 
 | Identity provider | authentik in the compose stack, instead of a hosted tenant. It has no client self-registration and ignores the `resource` parameter, so the client is pre-registered and the audience is the application ([decision record 0002](docs/decisions/0002-oauth-resource-server-with-a-pre-registered-client.md)) |
 | Browser sign-in (authorization code + PKCE) | **Configured, not yet exercised.** The tests get tokens the way a script does, with a user's app password |
 | `make up` without an identity provider | **Open on purpose** for local use: `ALLOW_ANONYMOUS=true`, port bound to `127.0.0.1` |
-| Jira and Confluence tools | **Not built yet** (phases 3 and 4) |
+| Account linking, the encrypted store, token refresh | **Real code, tested against a stand-in.** The browser flow, the identity check, encryption at rest and refresh rotation are all exercised, with Atlassian's and the identity provider's HTTP replaced by a fake built from their documentation |
+| Jira and Confluence read tools | **Real code, mocked Atlassian.** Never run against a real site yet. Scopes and response shapes are the likeliest surprises |
+| Write and destructive tools | **Not built yet** (phase 4) |
 | Audit log | **Not built yet** (phase 5) |
 
 ## Design decisions and trade-offs
@@ -129,6 +155,19 @@ parts than forwarding a header.
 **A separate service, not a feature of the gateway.** MCP clients can use it directly, and
 it shows the per-user model the gateway's own connectors don't have. *Trade-off:* another
 thing to run.
+
+**The browser has to prove who is sitting at it.** Before a user is sent to Atlassian to
+consent, their browser signs in at the identity provider, and the result must be the user
+the link was made for. Without that, an attacker could send their own link to a victim
+and end up with the victim's Jira. *Trade-off:* two redirects on first use.
+([0003](docs/decisions/0003-per-user-atlassian-grants.md))
+
+**Tokens are encrypted in a SQLite file.** The file is useless without a key that lives
+only in the environment, and keys can be rotated. *Trade-off:* one replica; several would
+need Postgres and a shared lock for refreshes.
+
+**One refresh at a time per user.** Atlassian's refresh tokens work once, so concurrent
+refreshes would strand a caller. The new pair is saved before it is used.
 
 **The identity provider is someone else's job.** The server verifies tokens; it doesn't
 issue them, hold passwords or show consent screens. *Trade-off:* it inherits the

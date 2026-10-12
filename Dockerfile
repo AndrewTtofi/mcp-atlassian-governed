@@ -11,6 +11,7 @@ COPY app ./app
 
 # Not root: nothing here needs it.
 RUN useradd --create-home --uid 1000 mcp
+RUN mkdir -p /srv/data && chown mcp /srv/data
 USER mcp
 
 EXPOSE 8080
