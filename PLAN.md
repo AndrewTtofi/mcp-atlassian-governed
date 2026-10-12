@@ -19,9 +19,11 @@ what changed. Decisions are recorded in `docs/decisions/`.
 
 ### Phase 3 — Atlassian account linking and read tools (`phase-3-atlassian-read`)
 Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
-- [ ] Each user links their own Atlassian account; the grant is stored encrypted.
-- [ ] Refresh-token rotation.
-- [ ] `jira_search`, `jira_get_issue`, `confluence_search`, `confluence_get_page`.
+- [x] Each user links their own Atlassian account; the grant is stored encrypted.
+- [x] The browser that opens the link must sign in as the user it was made for.
+- [x] Refresh-token rotation.
+- [x] `jira_search`, `jira_get_issue`, `confluence_search`, `confluence_get_page`.
+- [ ] A run against a real Atlassian site (so far: a stand-in built from Atlassian's documentation).
 
 ### Phase 4 — Write and destructive tools (`phase-4-writes`)
 - [ ] `jira_add_comment`, `jira_create_issue`: a write scope, and an allow-list in config.

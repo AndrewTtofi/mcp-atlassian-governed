@@ -1,7 +1,8 @@
 # Runbook
 
-How to run and operate the server. It grows with each phase; today the server has one
-tool and depends on an identity provider for sign-in.
+How to run and operate the server. It grows with each phase. The server depends on an
+identity provider for sign-in and on Atlassian Cloud for its tools, and keeps one SQLite
+file.
 
 ## Run it
 
@@ -39,6 +40,12 @@ Everything is an environment variable; `.env.example` lists them all.
 | `RESOURCE_URL` | `http://localhost:8080/mcp` | This server's address as clients know it. It is published in the metadata and must match what clients connect to |
 | `READ_SCOPE` | `atlassian:read` | The scope every call needs |
 | `ALLOW_ANONYMOUS` | `false` | `true` runs with no identity provider: anyone who can reach the port can call the server |
+| `OIDC_AUTHORIZE_URL`, `OIDC_TOKEN_URL` | empty | Where a browser signs in, and where the server redeems the code. Default: from discovery. Set both when users and the server reach the provider at different addresses |
+| `PUBLIC_URL` | `http://localhost:8080` | The server's address in a user's browser. The Atlassian app's callback must be `PUBLIC_URL/atlassian/callback` |
+| `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | empty | The OAuth 2.0 (3LO) app. Both empty: no Atlassian tools. **The secret is a secret** |
+| `ATLASSIAN_SCOPES` | read scopes + `offline_access` | What users are asked to grant. Must be a subset of the app's permissions |
+| `TOKEN_ENCRYPTION_KEY` | empty | **Secret.** Encrypts stored Atlassian tokens. `python -m app.store` prints a new one |
+| `DATABASE_PATH` | `data/mcp.sqlite3` | The SQLite file. In the container it is on the `mcp-data` volume |
 
 ## When something is wrong
 
@@ -59,6 +66,40 @@ The response never says why; the server's log does (`access token refused: …`)
 ### A client gets 403 `insufficient_scope`
 The token is valid but lacks `atlassian:read`. The client must request that scope, and
 the identity provider's application must offer it.
+
+### A user is told to link their account again and again
+Their grant keeps dying. Likely causes: the app's permissions in the developer console no
+longer cover `ATLASSIAN_SCOPES`; the user revoked the app in their Atlassian account; or
+`TOKEN_ENCRYPTION_KEY` changed without keeping the old key (see below).
+
+### "This link was made for a different user"
+The browser was signed in at the identity provider as someone other than the user who
+asked for the link. Sign out there, or use the right browser profile, and ask the
+assistant for a new link. If nobody asked for the link, it was sent by someone else:
+ignore it. It linked nothing.
+
+### "This link is not valid"
+Links last ten minutes, work once, and a newer link voids an older one. Call the tool
+again for a fresh one.
+
+### Rotate the token encryption key
+1. `python -m app.store` prints a new key.
+2. Set `TOKEN_ENCRYPTION_KEY=<new>,<old>` and restart. New writes use the new key; old
+   rows are still readable and are re-encrypted as each user's token is next refreshed.
+3. After an hour of normal use (or once you accept that idle users will link again),
+   set `TOKEN_ENCRYPTION_KEY=<new>` and restart.
+
+Losing the key is not a breach: the stored tokens can't be read by anyone. Every user
+links again.
+
+### Revoke one user's Atlassian access
+`sqlite3 data/mcp.sqlite3 "DELETE FROM grants WHERE subject = '<sub>'"`. The user can
+also remove the app under their Atlassian account's connected apps, which kills the grant
+at the source.
+
+### Back up
+The `mcp-data` volume (one file). A backup is only useful together with the key, and
+should be protected like it is.
 
 ### The identity provider is down
 Tokens signed with keys the server has already seen keep working until they expire.

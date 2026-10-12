@@ -41,6 +41,10 @@ services:
       OIDC_AUDIENCE: mcp-atlassian
       OIDC_JWKS_URL: http://authentik-server:9000/application/o/mcp-atlassian/jwks/
       RESOURCE_URL: http://localhost:8080/mcp
+      # A browser reaches authentik on localhost; this server reaches it on the compose network.
+      OIDC_AUTHORIZE_URL: http://localhost:9000/application/o/authorize/
+      OIDC_TOKEN_URL: http://authentik-server:9000/application/o/token/
+      PUBLIC_URL: http://localhost:8080
 
   # authentik's own database, on the Postgres major its own compose file ships with.
   authentik-db:
