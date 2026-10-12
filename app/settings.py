@@ -33,9 +33,39 @@ class Settings(BaseSettings):
     # anyone who can reach the port can call it. For local development only.
     allow_anonymous: bool = False
 
+    # Where a browser signs in, and where this server redeems the code. Defaults: from the
+    # issuer's discovery document. Set them when users and this server reach the identity
+    # provider at different addresses (a compose network).
+    oidc_authorize_url: str = ""
+    oidc_token_url: str = ""
+
+    # This server's address as a user's browser reaches it.
+    public_url: str = "http://localhost:8080"
+
+    # Atlassian (decision record 0003): the OAuth 2.0 (3LO) app each user grants access to.
+    atlassian_client_id: str = ""
+    atlassian_client_secret: str = ""
+    # What a user is asked to grant. `offline_access` is what yields a refresh token.
+    atlassian_scopes: str = (
+        "read:jira-work read:jira-user read:confluence-content.all search:confluence "
+        "read:me offline_access"
+    )
+    # Encrypts stored Atlassian tokens. Comma-separated: the first key encrypts, all
+    # decrypt (key rotation). Generate: python -m app.store
+    token_encryption_key: str = ""
+    database_path: str = "data/mcp.sqlite3"
+
     @property
     def auth_configured(self) -> bool:
         return bool(self.oidc_issuer and self.oidc_audience)
+
+    @property
+    def atlassian_configured(self) -> bool:
+        return bool(self.atlassian_client_id and self.atlassian_client_secret)
+
+    @property
+    def atlassian_redirect_url(self) -> str:
+        return f"{self.public_url.rstrip('/')}/atlassian/callback"
 
     def hosts(self) -> list[str]:
         return [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]

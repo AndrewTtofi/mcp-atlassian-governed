@@ -82,7 +82,9 @@ class JwtVerifier:
                 self._fetched_at = self._now()  # also after a failure: no retry storm
         return self._keys.get(kid)
 
-    async def verify_token(self, token: str) -> AccessToken | None:
+    async def claims(self, token: str, audience: str | None = None) -> dict[str, Any] | None:
+        """The verified claims of a JWT from the identity provider, or None. Used for
+        access tokens, and for the ID token of a browser sign-in (same keys and issuer)."""
         try:
             header = jwt.get_unverified_header(token)
         except jwt.PyJWTError:
@@ -94,11 +96,11 @@ class JwtVerifier:
         if key is None:
             return self._refuse("signed with a key the identity provider doesn't list")
         try:
-            claims: dict[str, Any] = jwt.decode(
+            verified: dict[str, Any] = jwt.decode(
                 token,
                 key,
                 algorithms=list(ALGORITHMS),
-                audience=self.audience,
+                audience=audience or self.audience,
                 issuer=self.issuer,
                 leeway=LEEWAY_SECONDS,
                 options={"require": ["exp", "iss", "aud", "sub"]},
@@ -106,6 +108,12 @@ class JwtVerifier:
         except jwt.PyJWTError as exc:
             # The class says which check failed (expired, audience, issuer, signature).
             return self._refuse(type(exc).__name__)
+        return verified
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        claims = await self.claims(token)
+        if claims is None:
+            return None
         scope = claims.get("scope")
         return AccessToken(
             token=token,

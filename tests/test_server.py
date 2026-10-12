@@ -32,7 +32,7 @@ async def test_the_status_tool_is_listed_as_read_only_and_answers() -> None:
             "version": __version__,
             "signed_in_as": None,
             "scopes": [],
-            "atlassian": "not connected",
+            "atlassian": "not configured",
         }
 
 
