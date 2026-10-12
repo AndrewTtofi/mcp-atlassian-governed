@@ -303,7 +303,7 @@ def http(idp: Idp, fake: WritableAtlassian, store: Store) -> TestClient:
     )
     verifier = JwtVerifier(ISSUER, AUDIENCE, RESOURCE, fetch=idp.fetch, clock=Clock())
     built = build_server(config, verifier, store, httpx2.MockTransport(fake))
-    return TestClient(build_app(built, config), base_url="http://mcp.test")
+    return TestClient(build_app(built, config), base_url="http://mcp.test", follow_redirects=False)
 
 
 def test_a_read_only_token_calling_a_write_tool_gets_a_403_that_names_the_scope(

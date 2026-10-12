@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 
 from app import __version__, tools
 from app.atlassian import Atlassian, Grants
+from app.audit import Audit, RateLimiter
 from app.linking import Linking
 from app.scopes import WriteScopeGate
 from app.settings import Settings, settings
@@ -62,6 +63,18 @@ def build_server(
         raise NotConfigured(
             "set OIDC_ISSUER and OIDC_AUDIENCE, or ALLOW_ANONYMOUS=true for local development"
         )
+    if store is None and config.atlassian_configured and auth:
+        store = Store(
+            config.database_path,
+            config.token_encryption_key,
+            audit_retention_days=config.audit_retention_days,
+        )
+    audit = Audit(
+        store,
+        tools.KINDS,
+        RateLimiter(config.calls_per_minute),
+        RateLimiter(config.writes_per_minute),
+    )
     server = MCPServer(
         name="mcp-atlassian-governed",
         title="Jira and Confluence (governed)",
@@ -69,12 +82,13 @@ def build_server(
         version=__version__,
         auth=auth,
         token_verifier=verifier if auth else None,
+        middleware=[audit],
     )
+    server.audit = audit  # type: ignore[attr-defined]  # build_app hands it to the scope gate
 
     # Atlassian needs to know whose grant to use, so it needs sign-in.
     grants: Grants | None = None
-    if config.atlassian_configured and auth and verifier:
-        store = store or Store(config.database_path, config.token_encryption_key)
+    if config.atlassian_configured and auth and verifier and store:
         atlassian = Atlassian(
             config.atlassian_client_id,
             config.atlassian_client_secret,
@@ -83,7 +97,7 @@ def build_server(
             transport=transport,
         )
         grants = Grants(store, atlassian)
-        linking = Linking(config, store, atlassian, verifier, transport=transport)
+        linking = Linking(config, store, atlassian, verifier, transport=transport, audit=audit)
         tools.register(
             server,
             grants,
@@ -148,6 +162,7 @@ def build_app(server: MCPServer | None = None, config: Settings = settings) -> S
             write_tools=writes,
             read_scope=config.read_scope,
             write_scope=config.write_scope,
+            audit=getattr(server, "audit", None),
             resource_metadata_url=str(build_resource_metadata_url(AnyHttpUrl(config.resource_url))),
         )
     return app

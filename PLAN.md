@@ -31,8 +31,9 @@ Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
 - [x] `jira_delete_comment`: also a confirmation the user answers in their client.
 
 ### Phase 5 — Audit and hardening (`phase-5-audit`)
-- [ ] One record per call, allowed or refused. Never content.
-- [ ] Rate limits per user; results bounded and marked as untrusted.
+- [x] One record per call, allowed or refused. Never content.
+- [x] Account linking and scope refusals are recorded too.
+- [x] Rate limits per user; results bounded (phase 3) and described to the model as untrusted (phase 1).
 
 ### Phase 6 — Governed by the gateway, and presentation (`phase-6-gateway`)
 - [ ] The gateway's policy decides who may use which tool.

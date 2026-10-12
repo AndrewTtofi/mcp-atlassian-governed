@@ -27,6 +27,17 @@ PAGE_ID = re.compile(r"[0-9]{1,20}")
 MAX_RESULTS = 25
 TEXT_CHARS = 6000  # a description or page body is cut here
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+# What kind each tool is, for the audit record and the rate limit.
+KINDS = {
+    "server_status": "read",
+    "jira_search": "read",
+    "jira_get_issue": "read",
+    "confluence_search": "read",
+    "confluence_get_page": "read",
+    "jira_add_comment": "write",
+    "jira_create_issue": "write",
+    "jira_delete_comment": "destructive",
+}
 _TAGS = re.compile(r"<[^>]+>")
 
 

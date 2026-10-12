@@ -68,10 +68,16 @@ class Linking:
         atlassian: Atlassian,
         verifier: JwtVerifier,
         transport: httpx2.AsyncBaseTransport | None = None,
+        audit: Any = None,
     ) -> None:
         self.config, self.store, self.atlassian, self.verifier = config, store, atlassian, verifier
         self._transport = transport
+        self._audit = audit
         self._endpoints: tuple[str, str] | None = None
+
+    async def _record(self, subject: str, outcome: str, detail: str | None = None) -> None:
+        if self._audit is not None:
+            await self._audit.record(subject, "link", "account", outcome, detail)
 
     @property
     def _signed_in_url(self) -> str:
@@ -124,6 +130,7 @@ class Linking:
             # The whole point of the detour: this browser belongs to someone else.
             log.warning("account link refused: opened by a different user than it was made for")
             await self.store.delete_link(link.id)
+            await self._record(link.subject, "refused", "opened_by_another_user")
             return page(
                 "This link was made for a different user",
                 "You are signed in as someone else. Nothing was linked. If you did not ask "
@@ -163,6 +170,7 @@ class Linking:
         await self.store.delete_link(link.id)  # one use, whatever happens next
         code = request.query_params.get("code", "")
         if not code:  # the user pressed Cancel at Atlassian
+            await self._record(link.subject, "refused", "declined_at_atlassian")
             return page("Nothing was linked", "You declined at Atlassian.", 400)
         try:
             tokens = await self.atlassian.exchange(code)
@@ -174,6 +182,7 @@ class Linking:
             site = sites[0]
             account = await self.atlassian.me(tokens.access_token)
         except AtlassianError as exc:
+            await self._record(link.subject, "error", type(exc).__name__)
             return page("Linking failed", str(exc), 502)
         await self.store.save_grant(
             Grant(
@@ -187,6 +196,7 @@ class Linking:
                 scopes=tokens.scopes,
             )
         )
+        await self._record(link.subject, "ok", "linked")
         return page(
             "Atlassian account linked",
             f"{account or 'Your account'} on {site.get('url', 'your site')} is now linked. "

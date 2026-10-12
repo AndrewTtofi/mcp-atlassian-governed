@@ -47,7 +47,9 @@ class WriteScopeGate:
         write_scope: str,
         resource_metadata_url: str,
         path: str = "/mcp",
+        audit: Any = None,
     ) -> None:
+        self._audit = audit
         self.app, self.verifier, self.write_tools = app, verifier, write_tools
         self.read_scope, self.write_scope = read_scope, write_scope
         self.resource_metadata_url, self.path = resource_metadata_url, path
@@ -66,24 +68,33 @@ class WriteScopeGate:
             body += message.get("body", b"")
             more = message.get("more_body", False)
 
-        if called_tools(body) & self.write_tools and not await self._may_write(scope):
-            await self._challenge(send)
-            return
+        wanted = called_tools(body) & self.write_tools
+        if wanted:
+            subject, may_write = await self._caller(scope)
+            if not may_write:
+                if self._audit is not None:
+                    for tool in sorted(wanted):
+                        await self._audit.record(
+                            subject, f"tool:{tool}", "write", "refused", "insufficient_scope"
+                        )
+                await self._challenge(send)
+                return
 
         async def replay() -> Message:  # hand the body on exactly as it arrived
             return chunks.pop(0) if chunks else await receive()
 
         await self.app(scope, replay, send)
 
-    async def _may_write(self, scope: Scope) -> bool:
+    async def _caller(self, scope: Scope) -> tuple[str | None, bool]:
+        """(who is calling, whether they may write)."""
         headers = dict(scope["headers"])
         value = headers.get(b"authorization", b"").decode("latin-1")
         if not value.lower().startswith("bearer "):
-            return True  # no token at all: the SDK answers 401, which is the right answer
+            return None, True  # no token at all: the SDK answers 401, the right answer
         access = await self.verifier.verify_token(value[7:].strip())
         if access is None:
-            return True  # not a valid token: 401, same reason
-        return self.write_scope in access.scopes
+            return None, True  # not a valid token: 401, same reason
+        return access.subject, self.write_scope in access.scopes
 
     async def _challenge(self, send: Send) -> None:
         # Both scopes: the client asks for the union, so the new token still reads.
