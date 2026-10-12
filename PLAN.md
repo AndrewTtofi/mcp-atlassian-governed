@@ -36,5 +36,10 @@ Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
 - [x] Rate limits per user; results bounded (phase 3) and described to the model as untrusted (phase 1).
 
 ### Phase 6 — Governed by the gateway, and presentation (`phase-6-gateway`)
-- [ ] The gateway's policy decides who may use which tool.
-- [ ] README, demo, architecture, runbook brought up to date; repository made public.
+- [x] The gateway's policy decides who may use which tool (decision record 0006).
+- [x] README, demo, architecture, runbook brought up to date; repository made public.
+
+### Open
+- [ ] A run against a real Atlassian site.
+- [ ] The browser sign-in driven by a real MCP client.
+- [ ] This server and the gateway run together, end to end.

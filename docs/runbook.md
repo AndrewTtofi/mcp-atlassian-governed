@@ -41,6 +41,10 @@ Everything is an environment variable; `.env.example` lists them all.
 | `READ_SCOPE` | `atlassian:read` | The scope every call needs |
 | `WRITE_SCOPE` | `atlassian:write` | The scope a tool that changes something also needs |
 | `WRITE_TOOLS` | empty | The write tools that exist, comma-separated: `jira_add_comment`, `jira_create_issue`, `jira_delete_comment`. Empty: read-only |
+| `GATEWAY_URL`, `GATEWAY_KEY` | empty | The AI gateway and this server's key for it (**secret**). Both set: every tool call is put to the gateway's policy first, and refused unless it says yes |
+| `GATEWAY_CONNECTOR`, `GATEWAY_DATA_CLASS` | `atlassian`, `internal` | This server's name in the gateway's policy, and the class of data its tools handle |
+| `CALLS_PER_MINUTE`, `WRITES_PER_MINUTE` | 60, 10 | Tool calls per user per minute, and of those, calls that change something |
+| `AUDIT_RETENTION_DAYS` | 365 | Audit rows older than this are deleted at start |
 | `ALLOW_ANONYMOUS` | `false` | `true` runs with no identity provider: anyone who can reach the port can call the server |
 | `OIDC_AUTHORIZE_URL`, `OIDC_TOKEN_URL` | empty | Where a browser signs in, and where the server redeems the code. Default: from discovery. Set both when users and the server reach the provider at different addresses |
 | `PUBLIC_URL` | `http://localhost:8080` | The server's address in a user's browser. The Atlassian app's callback must be `PUBLIC_URL/atlassian/callback` |
@@ -145,6 +149,26 @@ In the container the file is `/srv/data/mcp.sqlite3` on the `mcp-data` volume.
 They, or an agent acting for them, passed `CALLS_PER_MINUTE` or `WRITES_PER_MINUTE`. The
 audit record shows `rate_limited` rows and what was being called. Limits are per process
 and reset on restart.
+
+### Everyone is told "the policy service can't be reached"
+The gateway isn't answering, or is answering with an error. The server refuses every
+Atlassian tool until it does: that is intended. Check, in order:
+
+1. `curl -s $GATEWAY_URL/healthz` from the server's host.
+2. The server's log: `gateway refused the question: HTTP 403` means `GATEWAY_KEY` is not
+   in a group the gateway's policy lets ask (`delegated_decisions.client_groups`), or was
+   revoked. `HTTP 401` means the key is wrong.
+3. To run without the gateway in an emergency, unset `GATEWAY_URL` and restart. The
+   server is then ungoverned by policy, on its own controls only. Decide that knowingly.
+
+### Everyone is told "your account isn't set up for AI tools"
+The gateway doesn't recognise the users: the `sub` in this server's tokens is not what
+the gateway matches in its directory. Both must use the same identity provider and the
+same subject mode.
+
+### One person is told the policy doesn't allow a tool
+That is the gateway's decision. Its decision log has the code (role, tier, data class)
+under that user's name; the audit record here has the same code.
 
 ### The identity provider is down
 Tokens signed with keys the server has already seen keep working until they expire.
