@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 from app import __version__, tools
 from app.atlassian import Atlassian, Grants
 from app.audit import Audit, RateLimiter
+from app.gateway import GatewayPolicy
 from app.linking import Linking
 from app.scopes import WriteScopeGate
 from app.settings import Settings, settings
@@ -69,11 +70,21 @@ def build_server(
             config.token_encryption_key,
             audit_retention_days=config.audit_retention_days,
         )
+    policy = None
+    if config.gateway_configured:
+        policy = GatewayPolicy(
+            config.gateway_url,
+            config.gateway_key,
+            config.gateway_connector,
+            config.gateway_data_class,
+            transport=transport,
+        )
     audit = Audit(
         store,
         tools.KINDS,
         RateLimiter(config.calls_per_minute),
         RateLimiter(config.writes_per_minute),
+        policy=policy,
     )
     server = MCPServer(
         name="mcp-atlassian-governed",

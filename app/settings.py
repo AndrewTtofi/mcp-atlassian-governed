@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # The tools that change things, by name, comma-separated. A tool not listed here does
     # not exist as far as clients can tell. Empty: the server is read-only.
     write_tools: str = ""
+    # The governed AI gateway (decision record 0006). With both set, every Atlassian tool
+    # call is first put to the gateway's policy, and refused unless it says yes.
+    gateway_url: str = ""
+    gateway_key: str = ""  # this server's own gateway API key: a secret
+    gateway_connector: str = "atlassian"  # this server's name in the gateway's policy
+    gateway_data_class: str = "internal"  # the class of data these tools handle
     # Tool calls per user per minute, and of those, calls that change something.
     calls_per_minute: int = 60
     writes_per_minute: int = 10
@@ -68,6 +74,10 @@ class Settings(BaseSettings):
     @property
     def auth_configured(self) -> bool:
         return bool(self.oidc_issuer and self.oidc_audience)
+
+    @property
+    def gateway_configured(self) -> bool:
+        return bool(self.gateway_url and self.gateway_key)
 
     @property
     def atlassian_configured(self) -> bool:

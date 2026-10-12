@@ -20,10 +20,22 @@ from typing import Any
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.types import CallToolResult, TextContent
 
+from app.gateway import Decision, GatewayPolicy
 from app.store import Store
 
 log = logging.getLogger("mcp.audit")
 WINDOW_SECONDS = 60.0
+# Tools about this server itself, not about Atlassian: not a policy question.
+UNGOVERNED = frozenset({"server_status"})
+# What a person is told. The gateway's own reason stays in the gateway's log.
+REFUSALS = {
+    "gateway_unavailable": "The policy service can't be reached, so this was not allowed. "
+    "Try again shortly.",
+    "user_not_provisioned": "Your account isn't set up for AI tools yet. Contact the service desk.",
+    "user_deactivated": "Your account is deactivated.",
+    "data_class_not_eligible": "These tools can't be used with data this sensitive.",
+    "*": "Your organisation's policy doesn't allow you to use this tool.",
+}
 
 
 class RateLimiter:
@@ -69,8 +81,10 @@ class Audit:
         writes: RateLimiter,
         who: Callable[[], Any] = get_access_token,
         clock: Callable[[], float] = time.monotonic,
+        policy: GatewayPolicy | None = None,
     ) -> None:
         self.store, self.kinds, self.calls, self.writes = store, kinds, calls, writes
+        self.policy = policy
         self._who, self._now = who, clock
 
     async def record(
@@ -112,6 +126,17 @@ class Audit:
         if not self.calls.allow(key) or (kind != "read" and not self.writes.allow(key)):
             await self.record(subject, f"tool:{tool}", kind, "rate_limited")
             return refused("Too many calls in the last minute. Wait a little and try again.")
+        if self.policy is not None and tool not in UNGOVERNED:
+            # The organisation's policy, asked of the gateway. No subject, no answer, an
+            # unknown tool or anything but a clear yes: refused, and nothing runs.
+            verdict = (
+                await self.policy.decide(subject, tool)
+                if subject and tool != "unknown"
+                else Decision(False, "not_identified", "")
+            )
+            if not verdict.allowed:
+                await self.record(subject, f"tool:{tool}", kind, "refused", verdict.code)
+                return refused(REFUSALS.get(verdict.code, REFUSALS["*"]))
         started = self._now()
         try:
             result = await call_next(ctx)
