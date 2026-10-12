@@ -6,6 +6,9 @@ services:
     environment:
       HOST: 0.0.0.0        # inside the container; the published port below limits who can reach it
       PORT: "8080"
+      # No identity provider in this file: anyone who can reach the port can call the
+      # server. docker-compose.idp.yml adds one and turns this off.
+      ALLOW_ANONYMOUS: "true"
     ports: ["127.0.0.1:8080:8080"]
     read_only: true
     tmpfs: [/tmp]
