@@ -118,6 +118,34 @@ retries. The identity provider's application must offer the write scope.
 The client can't show the user a confirmation, so the destructive tool refuses. Nothing
 was deleted. Use a client that supports elicitation, or delete in Jira.
 
+### Read the audit record
+Every tool call, account link and scope refusal is a row in `audit` and a JSON line from
+the `mcp.audit` logger. Neither holds arguments or results.
+
+```bash
+# the last 20 things that happened
+sqlite3 -header -column data/mcp.sqlite3 \
+  "SELECT datetime(at,'unixepoch') AS at, subject, event, kind, outcome, detail FROM audit ORDER BY id DESC LIMIT 20"
+
+# everything that changed Jira in the last 7 days, by user
+sqlite3 -header -column data/mcp.sqlite3 \
+  "SELECT subject, event, count(*) FROM audit WHERE kind != 'read' AND outcome = 'ok'
+   AND at > unixepoch() - 7*86400 GROUP BY subject, event"
+
+# what was refused
+sqlite3 -header -column data/mcp.sqlite3 \
+  "SELECT datetime(at,'unixepoch') AS at, subject, event, outcome, detail FROM audit
+   WHERE outcome IN ('refused','rate_limited','not_confirmed') ORDER BY id DESC LIMIT 50"
+```
+
+In the container the file is `/srv/data/mcp.sqlite3` on the `mcp-data` volume.
+`subject` is the identity provider's `sub`; look the person up there.
+
+### A user says "Too many calls in the last minute"
+They, or an agent acting for them, passed `CALLS_PER_MINUTE` or `WRITES_PER_MINUTE`. The
+audit record shows `rate_limited` rows and what was being called. Limits are per process
+and reset on restart.
+
 ### The identity provider is down
 Tokens signed with keys the server has already seen keep working until they expire.
 Nobody can sign in or refresh. Key fetches are retried at most once a minute.

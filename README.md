@@ -1,9 +1,9 @@
 # mcp-atlassian-governed
 
-> **Status: phase 4 of 6.** Sign-in, per-user Atlassian account linking, four read tools
-> and three write tools (allow-listed, one needing the user's confirmation) are built.
-> Atlassian itself is a stand-in in the tests so far; nothing has been run against a real
-> site yet. Audit comes next. The phases are in [PLAN.md](PLAN.md).
+> **Status: phase 5 of 6.** Sign-in, per-user Atlassian account linking, read and write
+> tools, an audit record per call and per-user rate limits are built. Atlassian itself is
+> a stand-in in the tests so far; nothing has been run against a real site yet. The
+> phases are in [PLAN.md](PLAN.md).
 
 **An MCP server for Jira and Confluence where the agent acts as the signed-in user**, with
 that user's own permissions, instead of through one shared admin token.
@@ -156,7 +156,7 @@ the tool with it, and then shows the tokens that must not work: one without the 
 | Jira and Confluence read tools | **Real code, mocked Atlassian.** Never run against a real site yet. Scopes and response shapes are the likeliest surprises |
 | Write and destructive tools | **Real code, mocked Atlassian.** The allow-list, the scope challenge and the confirmation are exercised with the SDK's own client; the calls to Jira go to the stand-in |
 | The confirmation | **Real**, by the MCP SDK: the question is sent to the client, not answered by the model. A client that answers confirmations automatically would defeat it; that is the client's choice to make |
-| Audit log | **Not built yet** (phase 5) |
+| Audit record and rate limits | **Real.** A row and a log line per call, without content; per-user limits in memory |
 
 ## Design decisions and trade-offs
 
@@ -197,6 +197,11 @@ and one extra read from Jira.
 **Comments and descriptions are sent as plain text.** Whatever the model writes becomes
 text nodes: it can't mention people, add links or inject markup. *Trade-off:* no
 formatting.
+
+**Every call leaves a record, and the record never holds content.** Who, which tool, what
+kind, how it ended. *Trade-off:* it can show that a comment was deleted and by whom, not
+what it said; that is in Jira's own history.
+([0005](docs/decisions/0005-audit-record-and-rate-limits.md))
 
 **The identity provider is someone else's job.** The server verifies tokens; it doesn't
 issue them, hold passwords or show consent screens. *Trade-off:* it inherits the

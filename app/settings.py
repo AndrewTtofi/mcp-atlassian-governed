@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # The tools that change things, by name, comma-separated. A tool not listed here does
     # not exist as far as clients can tell. Empty: the server is read-only.
     write_tools: str = ""
+    # Tool calls per user per minute, and of those, calls that change something.
+    calls_per_minute: int = 60
+    writes_per_minute: int = 10
+    # Audit rows older than this are deleted at start.
+    audit_retention_days: int = 365
     # Without an identity provider the server refuses to start, unless this is set: then
     # anyone who can reach the port can call it. For local development only.
     allow_anonymous: bool = False

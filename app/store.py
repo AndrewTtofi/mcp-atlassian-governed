@@ -45,6 +45,18 @@ CREATE TABLE IF NOT EXISTS links (
     verified        INTEGER NOT NULL DEFAULT 0,  -- the browser proved to be `subject`
     atlassian_state TEXT               -- set when the browser is sent to Atlassian
 );
+CREATE TABLE IF NOT EXISTS audit (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    at      REAL NOT NULL,
+    subject TEXT NOT NULL,   -- the identity provider's `sub`, or "anonymous"
+    event   TEXT NOT NULL,   -- "tool:<name>", "link", "scope"
+    kind    TEXT NOT NULL,   -- read | write | destructive | account
+    outcome TEXT NOT NULL,   -- ok | error | refused | not_confirmed | rate_limited | asked
+    detail  TEXT,            -- a fixed word or an exception class, never content
+    ms      INTEGER
+);
+CREATE INDEX IF NOT EXISTS audit_at ON audit (at);
+CREATE INDEX IF NOT EXISTS audit_subject ON audit (subject, at);
 """
 
 
@@ -81,7 +93,13 @@ def new_key() -> str:
 
 
 class Store:
-    def __init__(self, path: str, keys: str, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        path: str,
+        keys: str,
+        clock: Callable[[], float] = time.time,
+        audit_retention_days: int = 0,
+    ) -> None:
         parts = [k.strip() for k in keys.split(",") if k.strip()]
         if not parts:
             raise StoreError("TOKEN_ENCRYPTION_KEY is not set")
@@ -96,6 +114,10 @@ class Store:
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(SCHEMA)
+        if audit_retention_days:
+            self._db.execute(
+                "DELETE FROM audit WHERE at < ?", (self._now() - audit_retention_days * 86400,)
+            )
         self._lock = asyncio.Lock()
 
     async def _run(self, sql: str, args: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
@@ -151,6 +173,29 @@ class Store:
 
     async def delete_grant(self, subject: str) -> None:
         await self._run("DELETE FROM grants WHERE subject = ?", (subject,))
+
+    # --- audit -------------------------------------------------------------------------
+
+    async def audit(
+        self,
+        subject: str | None,
+        event: str,
+        kind: str,
+        outcome: str,
+        detail: str | None = None,
+        ms: int | None = None,
+    ) -> None:
+        """One row per decision or call. Callers pass names and fixed words only: no
+        arguments, no results, no tokens."""
+        await self._run(
+            "INSERT INTO audit (at, subject, event, kind, outcome, detail, ms) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (self._now(), subject or "anonymous", event[:80], kind, outcome, detail, ms),
+        )
+
+    async def audit_rows(self, limit: int = 100) -> list[dict[str, Any]]:
+        rows = await self._run("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
 
     # --- links in progress -------------------------------------------------------------
 
