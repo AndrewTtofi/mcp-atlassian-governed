@@ -17,8 +17,11 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app import __version__
+from app import __version__, tools
+from app.atlassian import Atlassian, Grants
+from app.linking import Linking
 from app.settings import Settings, settings
+from app.store import Store
 from app.tokens import JwtVerifier
 
 INSTRUCTIONS = (
@@ -32,8 +35,14 @@ class NotConfigured(RuntimeError):
     """No identity provider is configured and anonymous use was not allowed."""
 
 
-def build_server(config: Settings = settings, verifier: JwtVerifier | None = None) -> MCPServer:
-    """`verifier` lets tests supply one with their own keys."""
+def build_server(
+    config: Settings = settings,
+    verifier: JwtVerifier | None = None,
+    store: Store | None = None,
+    transport: Any = None,
+) -> MCPServer:
+    """`verifier`, `store` and `transport` let tests supply their own keys, an in-memory
+    database and a stand-in for the HTTP calls to Atlassian and the identity provider."""
     auth: AuthSettings | None = None
     if config.auth_configured:
         verifier = verifier or JwtVerifier(
@@ -59,21 +68,45 @@ def build_server(config: Settings = settings, verifier: JwtVerifier | None = Non
         token_verifier=verifier if auth else None,
     )
 
+    # Atlassian needs to know whose grant to use, so it needs sign-in.
+    grants: Grants | None = None
+    if config.atlassian_configured and auth and verifier:
+        store = store or Store(config.database_path, config.token_encryption_key)
+        atlassian = Atlassian(
+            config.atlassian_client_id,
+            config.atlassian_client_secret,
+            config.atlassian_redirect_url,
+            config.atlassian_scopes,
+            transport=transport,
+        )
+        grants = Grants(store, atlassian)
+        linking = Linking(config, store, atlassian, verifier, transport=transport)
+        tools.register(server, grants, atlassian, linking)
+        # The browser side of account linking. No bearer token here: the browser proves
+        # who it is by signing in (app/linking.py).
+        server.custom_route("/atlassian/link", methods=["GET"])(linking.start)
+        server.custom_route("/atlassian/signed-in", methods=["GET"])(linking.signed_in)
+        server.custom_route("/atlassian/callback", methods=["GET"])(linking.callback)
+
     @server.tool(
         title="Server status",
         description="What this server is, who you are signed in as, and whether Atlassian "
         "is connected.",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
     )
-    def server_status() -> dict[str, Any]:
+    async def server_status() -> dict[str, Any]:
         caller = get_access_token()
+        linked = "not configured"
+        if grants is not None:
+            found = await grants.store.grant(caller.subject) if caller and caller.subject else None
+            linked = f"linked as {found.account} on {found.site_url}" if found else "not linked"
         return {
             "name": server.name,
             "version": __version__,
             # Who the server thinks is calling: the token's subject, never the token.
             "signed_in_as": caller.subject if caller else None,
             "scopes": sorted(caller.scopes) if caller else [],
-            "atlassian": "not connected",
+            "atlassian": linked,
         }
 
     # The SDK's decorator has no type annotations.
