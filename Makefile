@@ -1,4 +1,4 @@
-.PHONY: install up down logs test lint fmt lock audit
+.PHONY: install up down logs idp idp-down idp-e2e test lint fmt lock audit
 
 install:
 	pip install --require-hashes -r requirements-dev.txt
@@ -11,6 +11,18 @@ down:
 
 logs:
 	docker compose logs -f mcp
+
+# The server plus an identity provider (authentik) on http://localhost:9000.
+IDP = docker compose -f docker-compose.yml -f docker-compose.idp.yml
+idp:
+	$(IDP) up -d --build
+
+idp-down:
+	$(IDP) down
+
+# A real token from a real identity provider, end to end, in a throwaway stack.
+idp-e2e:
+	scripts/auth_e2e.sh
 
 test:
 	pytest -q

@@ -1,0 +1,77 @@
+# An identity provider for the dev stack: authentik (open source), so sign-in works end
+# to end with no account anywhere (decision record 0002).
+#
+#   make idp        # the server plus authentik on http://localhost:9000
+#   make idp-e2e    # get a real token and call the server with it, in a throwaway stack
+#
+# authentik is configured from config/authentik/blueprints/mcp-atlassian.yaml. Any
+# provider that issues signed JWT access tokens for this server can take its place: set
+# OIDC_ISSUER and OIDC_AUDIENCE.
+#
+# Needs in .env: AUTHENTIK_SECRET_KEY, AUTHENTIK_BOOTSTRAP_PASSWORD,
+# AUTHENTIK_BOOTSTRAP_TOKEN (see .env.example).
+# Dev only: plain HTTP, and the admin API is published on localhost.
+x-authentik: &authentik
+  image: ghcr.io/goauthentik/server:2026.8.3
+  environment:
+    AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+    AUTHENTIK_POSTGRESQL__HOST: authentik-db
+    AUTHENTIK_POSTGRESQL__NAME: authentik
+    AUTHENTIK_POSTGRESQL__USER: authentik
+    AUTHENTIK_POSTGRESQL__PASSWORD: authentik   # dev only
+    # First start only: the admin user's password and an API token for it.
+    AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
+    AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:?set AUTHENTIK_BOOTSTRAP_TOKEN in .env}
+    AUTHENTIK_BOOTSTRAP_EMAIL: admin@example.com
+    AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+    AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+  volumes:
+    - ./config/authentik/blueprints:/blueprints/mcp:ro
+  shm_size: 512mb
+  restart: unless-stopped
+
+services:
+  mcp:
+    environment:
+      ALLOW_ANONYMOUS: "false"
+      # `iss` is built from the host the token was requested on, so it is the URL you
+      # reach authentik at. The server fetches the keys over the compose network.
+      OIDC_ISSUER: http://localhost:9000/application/o/mcp-atlassian/
+      OIDC_AUDIENCE: mcp-atlassian
+      OIDC_JWKS_URL: http://authentik-server:9000/application/o/mcp-atlassian/jwks/
+      RESOURCE_URL: http://localhost:8080/mcp
+
+  # authentik's own database, on the Postgres major its own compose file ships with.
+  authentik-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: authentik
+      POSTGRES_DB: authentik
+    volumes: [authentik-db:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U authentik"], interval: 5s, retries: 20 }
+
+  authentik-server:
+    <<: *authentik
+    command: server
+    ports: ["127.0.0.1:9000:9000"]
+    depends_on:
+      authentik-db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+
+  # Started once the server is healthy, so one process runs the schema migrations on a
+  # fresh database and the worker finds it ready.
+  authentik-worker:
+    <<: *authentik
+    command: worker
+    depends_on:
+      authentik-server: { condition: service_healthy }
+
+volumes:
+  authentik-db:
