@@ -1,8 +1,9 @@
 # mcp-atlassian-governed
 
-> **Status: phase 3 of 6.** Sign-in, per-user Atlassian account linking and four read
-> tools are built. Atlassian itself is a stand-in in the tests so far; nothing has been
-> run against a real site yet. Write tools come next. The phases are in [PLAN.md](PLAN.md).
+> **Status: phase 4 of 6.** Sign-in, per-user Atlassian account linking, four read tools
+> and three write tools (allow-listed, one needing the user's confirmation) are built.
+> Atlassian itself is a stand-in in the tests so far; nothing has been run against a real
+> site yet. Audit comes next. The phases are in [PLAN.md](PLAN.md).
 
 **An MCP server for Jira and Confluence where the agent acts as the signed-in user**, with
 that user's own permissions, instead of through one shared admin token.
@@ -56,16 +57,30 @@ is calling* and the grant that says *what they may reach in Atlassian* are separ
 
 ## Tools
 
-| Tool | What it does |
-|------|--------------|
-| `jira_search` | Issues matching a JQL query |
-| `jira_get_issue` | One issue: status, people, description |
-| `confluence_search` | Pages matching a CQL query |
-| `confluence_get_page` | One page: title, space, text |
-| `server_status` | Who you are signed in as, and whether your Atlassian account is linked |
+| Tool | What it does | Kind |
+|------|--------------|------|
+| `server_status` | Who you are signed in as, and whether your Atlassian account is linked | read |
+| `jira_search` | Issues matching a JQL query | read |
+| `jira_get_issue` | One issue: status, people, description | read |
+| `confluence_search` | Pages matching a CQL query | read |
+| `confluence_get_page` | One page: title, space, text | read |
 
-All four Atlassian tools only read, and return only what the calling user could open
-themselves. The first call from a user who hasn't linked their account returns a link to
+| `jira_add_comment` | Add a plain-text comment | write, allow-listed |
+| `jira_create_issue` | Create an issue | write, allow-listed |
+| `jira_delete_comment` | Delete a comment | destructive, allow-listed, confirmed by the user |
+
+Three levels of control:
+
+- **Read tools** need the `atlassian:read` scope and return only what the calling user
+  could open themselves.
+- **Write tools** exist only if named in `WRITE_TOOLS`, and need the `atlassian:write`
+  scope. A call with a read-only token gets a 403 that names the missing scope, so the
+  client can ask the user for it.
+- **The destructive tool** also asks the person to confirm, through their client. The
+  server reads the comment from Jira and shows them the real text and author; the model
+  that requested the deletion never supplies the answer.
+
+The first Atlassian call from a user who hasn't linked their account returns a link to
 do it.
 
 ## Quickstart
@@ -139,7 +154,8 @@ the tool with it, and then shows the tokens that must not work: one without the 
 | `make up` without an identity provider | **Open on purpose** for local use: `ALLOW_ANONYMOUS=true`, port bound to `127.0.0.1` |
 | Account linking, the encrypted store, token refresh | **Real code, tested against a stand-in.** The browser flow, the identity check, encryption at rest and refresh rotation are all exercised, with Atlassian's and the identity provider's HTTP replaced by a fake built from their documentation |
 | Jira and Confluence read tools | **Real code, mocked Atlassian.** Never run against a real site yet. Scopes and response shapes are the likeliest surprises |
-| Write and destructive tools | **Not built yet** (phase 4) |
+| Write and destructive tools | **Real code, mocked Atlassian.** The allow-list, the scope challenge and the confirmation are exercised with the SDK's own client; the calls to Jira go to the stand-in |
+| The confirmation | **Real**, by the MCP SDK: the question is sent to the client, not answered by the model. A client that answers confirmations automatically would defeat it; that is the client's choice to make |
 | Audit log | **Not built yet** (phase 5) |
 
 ## Design decisions and trade-offs
@@ -168,6 +184,19 @@ need Postgres and a shared lock for refreshes.
 
 **One refresh at a time per user.** Atlassian's refresh tokens work once, so concurrent
 refreshes would strand a caller. The new pair is saved before it is used.
+
+**Writing is off until someone turns it on, tool by tool.** A write tool that isn't in
+`WRITE_TOOLS` isn't offered at all, so a model can't be talked into calling it.
+*Trade-off:* a config change and a restart to enable one.
+([0004](docs/decisions/0004-write-tools-allow-list-scope-and-confirmation.md))
+
+**Deleting needs a person, shown the real thing.** The server fetches the comment and
+asks the user through their client. *Trade-off:* a client that can't ask can't delete,
+and one extra read from Jira.
+
+**Comments and descriptions are sent as plain text.** Whatever the model writes becomes
+text nodes: it can't mention people, add links or inject markup. *Trade-off:* no
+formatting.
 
 **The identity provider is someone else's job.** The server verifies tokens; it doesn't
 issue them, hold passwords or show consent screens. *Trade-off:* it inherits the

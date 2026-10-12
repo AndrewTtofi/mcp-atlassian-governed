@@ -9,10 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -20,6 +22,7 @@ from starlette.responses import JSONResponse
 from app import __version__, tools
 from app.atlassian import Atlassian, Grants
 from app.linking import Linking
+from app.scopes import WriteScopeGate
 from app.settings import Settings, settings
 from app.store import Store
 from app.tokens import JwtVerifier
@@ -81,7 +84,14 @@ def build_server(
         )
         grants = Grants(store, atlassian)
         linking = Linking(config, store, atlassian, verifier, transport=transport)
-        tools.register(server, grants, atlassian, linking)
+        tools.register(
+            server,
+            grants,
+            atlassian,
+            linking,
+            write_tools=config.enabled_write_tools(),
+            write_scope=config.write_scope,
+        )
         # The browser side of account linking. No bearer token here: the browser proves
         # who it is by signing in (app/linking.py).
         server.custom_route("/atlassian/link", methods=["GET"])(linking.start)
@@ -120,10 +130,24 @@ def build_server(
 
 def build_app(server: MCPServer | None = None, config: Settings = settings) -> Starlette:
     """The ASGI app: MCP over Streamable HTTP at /mcp, plus /healthz."""
-    return (server or build_server(config)).streamable_http_app(
+    server = server or build_server(config)
+    app = server.streamable_http_app(
         host=config.host,
         # Only the names in ALLOWED_HOSTS may be used to reach the server.
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True, allowed_hosts=config.hosts()
         ),
     )
+    verifier = getattr(server, "_token_verifier", None)
+    writes = config.enabled_write_tools()
+    if writes and isinstance(verifier, JwtVerifier):
+        # A write tool called with a read-only token gets a 403 that names the scope.
+        app.add_middleware(
+            WriteScopeGate,
+            verifier=verifier,
+            write_tools=writes,
+            read_scope=config.read_scope,
+            write_scope=config.write_scope,
+            resource_metadata_url=str(build_resource_metadata_url(AnyHttpUrl(config.resource_url))),
+        )
+    return app

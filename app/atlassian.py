@@ -115,11 +115,23 @@ class Atlassian:
     # --- calls as the user -------------------------------------------------------------
 
     async def _get(self, url: str, access_token: str, params: dict[str, Any] | None = None) -> Any:
+        return await self._send("GET", url, access_token, params=params)
+
+    async def _send(
+        self,
+        method: str,
+        url: str,
+        access_token: str,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> Any:
         try:
             async with self._client() as client:
-                resp = await client.get(
+                resp = await client.request(
+                    method,
                     url,
                     params=params,
+                    json=body,
                     headers={
                         "authorization": f"Bearer {access_token}",
                         "accept": "application/json",
@@ -137,7 +149,9 @@ class Atlassian:
             raise AtlassianError("Atlassian rejected the query")
         if resp.status_code == 429:
             raise AtlassianError("Atlassian is rate limiting this account; try again shortly")
-        if resp.status_code != 200:
+        if resp.status_code == 204:  # done, nothing to return (a delete)
+            return None
+        if resp.status_code not in (200, 201):
             raise AtlassianError(f"Atlassian answered HTTP {resp.status_code}")
         try:
             return resp.json()
@@ -155,6 +169,14 @@ class Atlassian:
 
     async def jira(self, grant: Grant, path: str, params: dict[str, Any] | None = None) -> Any:
         return await self._get(f"{API}/ex/jira/{grant.cloud_id}{path}", grant.access_token, params)
+
+    async def jira_write(
+        self, grant: Grant, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> Any:
+        """A change in Jira, made as the user: Jira records them as its author."""
+        return await self._send(
+            method, f"{API}/ex/jira/{grant.cloud_id}{path}", grant.access_token, body=body
+        )
 
     async def confluence(
         self, grant: Grant, path: str, params: dict[str, Any] | None = None

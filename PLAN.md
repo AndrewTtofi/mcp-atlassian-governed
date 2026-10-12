@@ -26,8 +26,9 @@ Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
 - [ ] A run against a real Atlassian site (so far: a stand-in built from Atlassian's documentation).
 
 ### Phase 4 — Write and destructive tools (`phase-4-writes`)
-- [ ] `jira_add_comment`, `jira_create_issue`: a write scope, and an allow-list in config.
-- [ ] `jira_delete_comment`: also a confirmation the user answers in their client.
+- [x] `jira_add_comment`, `jira_create_issue`: a write scope, and an allow-list in config.
+- [x] A 403 `insufficient_scope` that names the scope, so a client can step up.
+- [x] `jira_delete_comment`: also a confirmation the user answers in their client.
 
 ### Phase 5 — Audit and hardening (`phase-5-audit`)
 - [ ] One record per call, allowed or refused. Never content.
