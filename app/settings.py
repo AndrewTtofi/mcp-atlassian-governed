@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     resource_url: str = "http://localhost:8080/mcp"
     # The scope every call needs.
     read_scope: str = "atlassian:read"
+    # The scope a call that changes something also needs.
+    write_scope: str = "atlassian:write"
+    # The tools that change things, by name, comma-separated. A tool not listed here does
+    # not exist as far as clients can tell. Empty: the server is read-only.
+    write_tools: str = ""
     # Without an identity provider the server refuses to start, unless this is set: then
     # anyone who can reach the port can call it. For local development only.
     allow_anonymous: bool = False
@@ -66,6 +71,9 @@ class Settings(BaseSettings):
     @property
     def atlassian_redirect_url(self) -> str:
         return f"{self.public_url.rstrip('/')}/atlassian/callback"
+
+    def enabled_write_tools(self) -> frozenset[str]:
+        return frozenset(t.strip() for t in self.write_tools.split(",") if t.strip())
 
     def hosts(self) -> list[str]:
         return [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]

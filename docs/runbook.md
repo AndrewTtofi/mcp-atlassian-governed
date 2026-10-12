@@ -39,6 +39,8 @@ Everything is an environment variable; `.env.example` lists them all.
 | `OIDC_JWKS_URL` | empty | Where the provider's keys are. Default: from the issuer's discovery document. Set it when the server reaches the provider at a different address than users do |
 | `RESOURCE_URL` | `http://localhost:8080/mcp` | This server's address as clients know it. It is published in the metadata and must match what clients connect to |
 | `READ_SCOPE` | `atlassian:read` | The scope every call needs |
+| `WRITE_SCOPE` | `atlassian:write` | The scope a tool that changes something also needs |
+| `WRITE_TOOLS` | empty | The write tools that exist, comma-separated: `jira_add_comment`, `jira_create_issue`, `jira_delete_comment`. Empty: read-only |
 | `ALLOW_ANONYMOUS` | `false` | `true` runs with no identity provider: anyone who can reach the port can call the server |
 | `OIDC_AUTHORIZE_URL`, `OIDC_TOKEN_URL` | empty | Where a browser signs in, and where the server redeems the code. Default: from discovery. Set both when users and the server reach the provider at different addresses |
 | `PUBLIC_URL` | `http://localhost:8080` | The server's address in a user's browser. The Atlassian app's callback must be `PUBLIC_URL/atlassian/callback` |
@@ -100,6 +102,21 @@ at the source.
 ### Back up
 The `mcp-data` volume (one file). A backup is only useful together with the key, and
 should be protected like it is.
+
+### Turn a write tool on or off
+Set `WRITE_TOOLS` and restart. With any write tool on, the Atlassian app needs the
+`write:jira-work` permission and `ATLASSIAN_SCOPES` must include it; users who linked
+before that have to link again to grant it. A name that isn't a tool stops the server at
+start, so a typo can't silently leave a tool off.
+
+### A client gets 403 on a write tool
+Its token has `atlassian:read` but not `atlassian:write`. The response's
+`WWW-Authenticate` header names both scopes; the client asks the user for them and
+retries. The identity provider's application must offer the write scope.
+
+### "Client did not declare the form elicitation capability"
+The client can't show the user a confirmation, so the destructive tool refuses. Nothing
+was deleted. Use a client that supports elicitation, or delete in Jira.
 
 ### The identity provider is down
 Tokens signed with keys the server has already seen keep working until they expire.
