@@ -91,7 +91,7 @@ curl -s localhost:8080/healthz      # {"status":"ok","version":"0.1.0"}
 ```
 
 Connect any MCP client to `http://localhost:8080/mcp` (Streamable HTTP). With the
-Python SDK:
+Python SDK (version 2, which `make install` below puts in a venv):
 
 ```python
 import asyncio
