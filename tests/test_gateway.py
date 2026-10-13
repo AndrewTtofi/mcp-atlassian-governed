@@ -180,3 +180,14 @@ async def test_the_status_tool_is_not_a_policy_question(gateway: Gateway, store:
     async with Client(server(gateway, store)) as client:
         assert (await client.call_tool("server_status", {})).is_error is not True
     assert gateway.questions == []
+
+
+async def test_a_user_the_policy_refuses_can_still_unlink(gateway: Gateway, store: Store) -> None:
+    gateway.answer = {"allowed": False, "code": "role_not_allowed", "reason": "internal detail"}
+    async with Client(server(gateway, store)) as client:
+        assert (await client.call_tool("jira_get_issue", ISSUE)).is_error is True
+        result = await client.call_tool("atlassian_unlink", {})
+    assert result.is_error is not True
+    assert await store.grant("user-alice") is None
+    # Their own grant is theirs to withdraw: the policy was asked about Jira only.
+    assert [q["tool"] for q in gateway.questions] == ["jira_get_issue"]

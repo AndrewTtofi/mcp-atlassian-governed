@@ -27,6 +27,10 @@ PAGE_ID = re.compile(r"[0-9]{1,20}")
 MAX_RESULTS = 25
 TEXT_CHARS = 6000  # a description or page body is cut here
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+# Changes what this server holds, nothing at Atlassian. Doing it twice changes nothing more.
+ACCOUNT = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
 # What kind each tool is, for the audit record and the rate limit.
 KINDS = {
     "server_status": "read",
@@ -37,6 +41,7 @@ KINDS = {
     "jira_add_comment": "write",
     "jira_create_issue": "write",
     "jira_delete_comment": "destructive",
+    "atlassian_unlink": "account",
 }
 _TAGS = re.compile(r"<[^>]+>")
 
@@ -128,6 +133,28 @@ def register(
             raise ToolError(str(exc)) from None
 
     register_writes(server, write_tools, write_scope, grant, call, atlassian, who)
+
+    @server.tool(
+        title="Disconnect your Atlassian account",
+        description="Remove your Atlassian link from this server: to stop using it, or to "
+        "link again after your access at Atlassian changed (a product added to the site, "
+        "new permissions). The next Jira or Confluence call returns a new link.",
+        annotations=ACCOUNT,
+    )
+    async def atlassian_unlink() -> dict[str, Any]:
+        # No confirmation: it only takes access away from this server, and linking again
+        # undoes it. Only ever the caller's own grant; there is no argument to name another.
+        caller = who()
+        if caller is None or not caller.subject:
+            raise ToolError("sign-in is required to use Jira and Confluence")
+        was_linked = await grants.forget(caller.subject)
+        return {
+            "unlinked": was_linked,
+            "atlassian": "not linked",
+            # Atlassian has no endpoint to revoke a 3LO grant, so say where that is done.
+            "note": "The tokens held here are deleted. To withdraw the app's access at "
+            "Atlassian as well, remove it under Connected apps in your Atlassian account.",
+        }
 
     @server.tool(
         title="Search Jira",
