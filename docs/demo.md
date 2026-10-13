@@ -1,6 +1,6 @@
 # Demo
 
-What can be shown today, and what needs an Atlassian site.
+What can be shown without any account, and what needs an Atlassian site.
 
 ## 1. Sign-in, against a real identity provider (no accounts needed)
 
@@ -36,6 +36,8 @@ pytest -q -k "links_their_account"            # sign in, consent, then read as y
 pytest -q -k "opened_by_someone_else"         # an attacker's link opened by a victim links nothing
 pytest -q -k "encrypted_in_the_database"      # the token is not in the file
 pytest -q -k "concurrent_calls_refresh_once"  # ten calls, one refresh
+pytest -q -k "unlinks_their_own_account"      # unlink, link again, and only ever your own
+pytest -q -k "policy_refuses_can_still_unlink"
 pytest -q -k "allow_list"                     # write tools that aren't enabled don't exist
 pytest -q -k "403_that_names_the_scope"       # a read-only token calling a write tool
 pytest -q -k "shows_the_person_the_real_comment"   # the confirmation before a deletion
@@ -44,7 +46,7 @@ pytest -q -k "never_holds_what_was_said"      # the audit record has no content
 pytest -q -k "anything_but_a_clear_yes_is_a_no"    # the gateway is down: nothing runs
 ```
 
-## 3. With a real Atlassian site (not yet run)
+## 3. With a real Atlassian site
 
 Follow "Connect Atlassian" in the README, then:
 
@@ -56,5 +58,15 @@ Connect an MCP client to `http://localhost:8080/mcp` with client id `mcp-atlassi
 in, and ask for an issue. The first call returns a link; open it, sign in, consent at
 Atlassian, and call again.
 
-This path has not been exercised against a real site. The first run is expected to find
-differences from the stand-in, most likely in scopes and response shapes.
+This was run once, on 2026-10-13, with the MCP Inspector as the client and the gateway
+deciding each call: sign-in, the link, a Confluence search and a Jira search. Two things
+came out of it that the stand-in could not show:
+
+- The identity provider named its token's issuer after the host the request arrived on.
+  The server reached it by its internal name, so the sign-in step of linking was refused
+  until the request carried the issuer's host.
+- The site had only Confluence when the user linked. After Jira was added, Jira calls
+  answered "not found": the grant was fixed at consent. That is why `atlassian_unlink`
+  exists.
+
+Not run live yet: the write tools, the confirmation, the two "get" tools, a refresh.

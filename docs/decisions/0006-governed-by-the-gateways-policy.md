@@ -45,6 +45,7 @@ POST {GATEWAY_URL}/v1/authorize      Authorization: Bearer {GATEWAY_KEY}
 - **No caching of answers.** One request per tool call; a cached yes would outlive a
   deprovisioning.
 - **`server_status` is not asked about.** It is about this server, not Atlassian.
+  (So is `atlassian_unlink`, added later: decision record 0007.)
 - **Without the two variables the server runs ungoverned,** on its own controls: scopes,
   the allow-list, the confirmation, the user's own Atlassian permissions.
 

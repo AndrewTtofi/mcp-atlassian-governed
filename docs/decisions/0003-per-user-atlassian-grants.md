@@ -72,3 +72,11 @@ user's own token.
 - **Atlassian has not been called for real yet.** Everything here is tested against a
   stand-in that follows Atlassian's documented requests and responses. The first run
   against a real site may find differences, most likely in scopes and response shapes.
+
+## Update, 2026-10-13
+Linking, a Jira search and a Confluence search were run against a real site. Two
+findings. The sign-in code was redeemed under the provider's internal host name, which
+authentik then wrote into the token as its issuer; the request now carries the issuer's
+host. And "nothing until the grant dies" above was too optimistic: a grant can stay
+valid and still be the wrong one, because Atlassian fixes it to the products and scopes
+present at consent. Decision record 0007 adds a way to link again.

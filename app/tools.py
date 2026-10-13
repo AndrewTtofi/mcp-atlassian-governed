@@ -151,7 +151,7 @@ def register(
         return {
             "unlinked": was_linked,
             "atlassian": "not linked",
-            # Atlassian has no endpoint to revoke a 3LO grant, so say where that is done.
+            # Atlassian documents no way for an app to revoke a 3LO grant: say where it is done.
             "note": "The tokens held here are deleted. To withdraw the app's access at "
             "Atlassian as well, remove it under Connected apps in your Atlassian account.",
         }

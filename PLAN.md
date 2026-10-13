@@ -15,7 +15,7 @@ what changed. Decisions are recorded in `docs/decisions/`.
 - [x] 401 with `WWW-Authenticate` pointing at it; 403 `insufficient_scope` with the scope needed.
 - [x] Access tokens verified: signature, issuer, audience (this server only), expiry, scope.
 - [x] An identity provider in the compose stack, and an end-to-end test against it.
-- [ ] The browser sign-in (authorization code + PKCE) driven by a real MCP client.
+- [x] The browser sign-in (authorization code + PKCE) driven by a real MCP client (by hand, with the MCP Inspector).
 
 ### Phase 3 — Atlassian account linking and read tools (`phase-3-atlassian-read`)
 Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
@@ -23,7 +23,7 @@ Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
 - [x] The browser that opens the link must sign in as the user it was made for.
 - [x] Refresh-token rotation.
 - [x] `jira_search`, `jira_get_issue`, `confluence_search`, `confluence_get_page`.
-- [ ] A run against a real Atlassian site (so far: a stand-in built from Atlassian's documentation).
+- [x] A run against a real Atlassian site: linking, `jira_search`, `confluence_search`.
 
 ### Phase 4 — Write and destructive tools (`phase-4-writes`)
 - [x] `jira_add_comment`, `jira_create_issue`: a write scope, and an allow-list in config.
@@ -39,7 +39,14 @@ Needs an Atlassian Cloud site and an OAuth 2.0 (3LO) app.
 - [x] The gateway's policy decides who may use which tool (decision record 0006).
 - [x] README, demo, architecture, runbook brought up to date; repository made public.
 
+### After the first live run (2026-10-13)
+- [x] A run against a real Atlassian site, with the browser sign-in driven by a real MCP
+      client and the gateway deciding every call.
+- [x] Fix found by it: the sign-in code is redeemed under the issuer's host.
+- [x] Gap found by it: `atlassian_unlink`, so a user can link again (decision record 0007).
+
 ### Open
-- [ ] A run against a real Atlassian site.
-- [ ] The browser sign-in driven by a real MCP client.
-- [ ] This server and the gateway run together, end to end.
+- [ ] The write tools, the confirmation and `atlassian_unlink` against a real site.
+- [ ] `jira_get_issue` and `confluence_get_page` against a real site.
+- [ ] A refresh watched live (an hour after linking).
+- [ ] The user synced into the gateway's directory by SCIM, not added by hand.
