@@ -62,7 +62,6 @@ what is stored and what is trusted.
 | `jira_get_issue` | One issue: status, people, description | read |
 | `confluence_search` | Pages matching a CQL query | read |
 | `confluence_get_page` | One page: title, space, text | read |
-
 | `jira_add_comment` | Add a plain-text comment | write, allow-listed |
 | `jira_create_issue` | Create an issue | write, allow-listed |
 | `jira_delete_comment` | Delete a comment | destructive, allow-listed, confirmed by the user |
@@ -109,7 +108,9 @@ asyncio.run(main())
 Without Docker: `python3.12 -m venv .venv && . .venv/bin/activate && make install && ALLOW_ANONYMOUS=true python -m app`.
 
 `make up` runs the server with no identity provider, open to anyone who can reach the
-port (which is bound to `127.0.0.1`).
+port (which is bound to `127.0.0.1`). It offers `server_status` only: the Jira and
+Confluence tools need to know whose access to use, so they appear once sign-in and
+Atlassian are both configured (the next two sections).
 
 ### With sign-in
 
@@ -120,6 +121,10 @@ curl -si localhost:8080/mcp -X POST | grep -i www-authenticate
 # www-authenticate: Bearer error="invalid_token", …, resource_metadata="http://localhost:8080/.well-known/oauth-protected-resource/mcp"
 make idp-e2e            # the whole flow in a throwaway stack, with its checks
 ```
+
+`make idp-e2e` creates a user in the identity provider, gets a real token for them, calls
+the tool with it, and then shows the tokens that must not work: one without the scope
+(403), one issued for another application (401), and a tampered one (401).
 
 ### Connect Atlassian
 
@@ -134,6 +139,11 @@ make idp-e2e            # the whole flow in a throwaway stack, with its checks
 5. `make idp`. The first Jira or Confluence call from a user returns a link; they open
    it, sign in, consent at Atlassian, and call again.
 
+To switch on writing, name the tools in `WRITE_TOOLS` (for example
+`WRITE_TOOLS=jira_add_comment,jira_create_issue`), and add `write:jira-work` to the app's
+Jira permissions and to `ATLASSIAN_SCOPES`. Users who linked before that have to link
+again, because their grant doesn't carry the new scope.
+
 ### Govern it with the AI gateway
 
 With [ai-gateway](https://github.com/AndrewTtofi/ai-gateway) running, set `GATEWAY_URL`
@@ -142,17 +152,13 @@ name=mcp-atlassian tier=standard team=mcp-servers`, in the gateway's repo). Ever
 call is then put to the gateway's policy first and recorded in its decision log under the
 user's name. If the gateway doesn't answer, the call is refused.
 
-`make idp-e2e` creates a user in the identity provider, gets a real token for them, calls
-the tool with it, and then shows the tokens that must not work: one without the scope
-(403), one issued for another application (401), and a tampered one (401).
-
 ## What's real vs. mocked
 
 | Part | Status |
 |------|--------|
 | MCP server over Streamable HTTP | **Real.** The official SDK; tested in-process and over HTTP, and in CI against the built container |
 | Host-name allow-list (DNS rebinding protection) | **Real**, tested |
-| `server_status` tool | **Real**, and the only tool. It reports that Atlassian is not connected |
+| `server_status` tool | **Real.** The only tool offered until sign-in and Atlassian are configured; it reports who is calling and whether their Atlassian account is linked |
 | Token checks | **Real.** Signature (asymmetric only), issuer, audience, expiry and scope, against a real identity provider in CI on every pull request |
 | Discovery (resource metadata, 401 and 403 challenges) | **Real**, by the MCP SDK, tested |
 | Identity provider | authentik in the compose stack, instead of a hosted tenant. It has no client self-registration and ignores the `resource` parameter, so the client is pre-registered and the audience is the application ([decision record 0002](docs/decisions/0002-oauth-resource-server-with-a-pre-registered-client.md)) |
