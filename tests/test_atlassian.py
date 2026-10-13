@@ -384,6 +384,45 @@ def browse(
     return http.get(f"/atlassian/callback?state={state}{code}")
 
 
+def test_a_sign_in_code_is_redeemed_under_the_issuers_host(
+    idp: Idp, fake: FakeAtlassian, store: Store
+) -> None:
+    """The server may reach the identity provider at a private address (a compose service
+    name) while its tokens must name the public issuer. Some providers (authentik) take the
+    issuer from the request's Host, so the redemption has to ask under the issuer's host.
+    Found live: without it the ID token's issuer was the private name and was refused."""
+    private = "http://idp-internal:9000/application/o/token/"
+    seen: list[str] = []
+
+    def transport(request: httpx2.Request) -> httpx2.Response:
+        if str(request.url) == private:
+            seen.append(request.headers["host"])
+            request = httpx2.Request(
+                request.method, f"{ISSUER}token/", headers=request.headers, content=request.content
+            )
+        return fake(request)
+
+    config = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        allowed_hosts="mcp.test",
+        oidc_issuer=ISSUER,
+        oidc_audience=AUDIENCE,
+        oidc_authorize_url=f"{ISSUER}authorize/",
+        oidc_token_url=private,
+        resource_url=RESOURCE,
+        public_url="http://mcp.test",
+        atlassian_client_id="client-id",
+        atlassian_client_secret="client-secret",
+    )
+    verifier = JwtVerifier(ISSUER, AUDIENCE, RESOURCE, fetch=idp.fetch, clock=Clock())
+    server = build_server(config, verifier, store, httpx2.MockTransport(transport))
+    http = TestClient(build_app(server, config), base_url="http://mcp.test", follow_redirects=False)
+    with http:
+        refused = Session(http, idp.token()).call("jira_get_issue", key="OPS-12")
+        assert browse(http, fake, link_url(refused)).status_code == 200
+    assert seen == ["idp.test"]  # the issuer's host, not "idp-internal:9000"
+
+
 def test_a_user_links_their_account_and_then_reads_as_themselves(
     http: TestClient, idp: Idp, fake: FakeAtlassian, store: Store
 ) -> None:

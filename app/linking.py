@@ -22,7 +22,7 @@ import html
 import logging
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx2
 from starlette.requests import Request
@@ -153,7 +153,13 @@ class Linking:
         }
         try:
             async with httpx2.AsyncClient(timeout=10.0, transport=self._transport) as client:
-                resp = await client.post(token_url, data=form)
+                # Some providers (authentik) name the issuer after the request's Host. This
+                # server may reach the provider at a private address (OIDC_TOKEN_URL) while
+                # tokens must carry the public issuer, so ask under the issuer's host.
+                host = urlsplit(self.config.oidc_issuer).netloc
+                resp = await client.post(
+                    token_url, data=form, headers={"Host": host} if host else None
+                )
             id_token = resp.json().get("id_token") if resp.status_code == 200 else None
         except (httpx2.HTTPError, ValueError) as exc:
             log.warning("sign-in code could not be redeemed: %s", type(exc).__name__)
