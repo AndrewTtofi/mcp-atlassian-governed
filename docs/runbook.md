@@ -98,10 +98,20 @@ again for a fresh one.
 Losing the key is not a breach: the stored tokens can't be read by anyone. Every user
 links again.
 
+### Jira or Confluence answers "not found" for everything, for one user
+Their grant predates a change at Atlassian. A grant covers the products on the site and
+the scopes asked for *when the user consented*: if Jira was added to the site afterwards,
+or `ATLASSIAN_SCOPES` grew, the old grant still refreshes but doesn't reach the new
+thing. Seen live: every Jira call failed for a user who had linked while the site had
+only Confluence. The user calls `atlassian_unlink` and links again from the next call.
+
 ### Revoke one user's Atlassian access
-`sqlite3 data/mcp.sqlite3 "DELETE FROM grants WHERE subject = '<sub>'"`. The user can
-also remove the app under their Atlassian account's connected apps, which kills the grant
-at the source.
+The user does it themselves with `atlassian_unlink`. For someone else, as the operator:
+`sqlite3 data/mcp.sqlite3 "DELETE FROM grants WHERE subject = '<sub>'"`.
+
+Both delete this server's copy of the tokens, which is enough to stop this server acting
+for them. Neither tells Atlassian: it documents no call for an app to revoke this kind of grant. To end it
+at the source, the user removes the app under Connected apps in their Atlassian account.
 
 ### Back up
 The `mcp-data` volume (one file). A backup is only useful together with the key, and

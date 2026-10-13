@@ -35,6 +35,10 @@ flowchart LR
 Write tools pass a sixth, earlier: they exist only if the operator named them in
 `WRITE_TOOLS`.
 
+Two tools skip check 4, because they are about this server and not about Atlassian:
+`server_status`, and `atlassian_unlink`, which deletes the caller's own grant. A user the
+policy refuses can still withdraw what they gave.
+
 ## Two grants, never one passed along
 
 ```mermaid
@@ -95,4 +99,5 @@ server and the identity provider's limits ·
 [0003](decisions/0003-per-user-atlassian-grants.md) linking, storage and refresh ·
 [0004](decisions/0004-write-tools-allow-list-scope-and-confirmation.md) write tools ·
 [0005](decisions/0005-audit-record-and-rate-limits.md) audit and limits ·
-[0006](decisions/0006-governed-by-the-gateways-policy.md) the gateway's policy
+[0006](decisions/0006-governed-by-the-gateways-policy.md) the gateway's policy ·
+[0007](decisions/0007-a-user-can-unlink-their-own-account.md) unlinking

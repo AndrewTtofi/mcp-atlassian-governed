@@ -1,8 +1,10 @@
 # mcp-atlassian-governed
 
 > **Status:** all six phases are built and tested. Sign-in runs against a real identity
-> provider in CI. **Atlassian is a stand-in in the tests: nothing has been run against a
-> real Atlassian site yet.** "What's real vs. mocked" below says exactly which is which.
+> provider in CI. Atlassian is a stand-in in the tests. **Run once against a real Atlassian
+> site (2026-10-13): browser sign-in, account linking, a Confluence search and a Jira
+> search. The write tools have not been run live.** "What's real vs. mocked" below says
+> exactly which is which.
 
 **An MCP server for Jira and Confluence where the agent acts as the signed-in user**, with
 that user's own permissions, instead of through one shared admin token.
@@ -65,6 +67,7 @@ what is stored and what is trusted.
 | `jira_add_comment` | Add a plain-text comment | write, allow-listed |
 | `jira_create_issue` | Create an issue | write, allow-listed |
 | `jira_delete_comment` | Delete a comment | destructive, allow-listed, confirmed by the user |
+| `atlassian_unlink` | Remove your own Atlassian link from this server, to stop or to link again | account |
 
 Three levels of control:
 
@@ -87,7 +90,7 @@ You need Docker with Compose.
 ```bash
 git clone https://github.com/AndrewTtofi/mcp-atlassian-governed.git && cd mcp-atlassian-governed
 make up
-curl -s localhost:8080/healthz      # {"status":"ok","version":"0.1.0"}
+curl -s localhost:8080/healthz      # {"status":"ok","version":"0.2.0"}
 ```
 
 Connect any MCP client to `http://localhost:8080/mcp` (Streamable HTTP). With the
@@ -142,7 +145,8 @@ the tool with it, and then shows the tokens that must not work: one without the 
 To switch on writing, name the tools in `WRITE_TOOLS` (for example
 `WRITE_TOOLS=jira_add_comment,jira_create_issue`), and add `write:jira-work` to the app's
 Jira permissions and to `ATLASSIAN_SCOPES`. Users who linked before that have to link
-again, because their grant doesn't carry the new scope.
+again, because their grant doesn't carry the new scope: they call `atlassian_unlink`,
+and the next call returns a link.
 
 ### Govern it with the AI gateway
 
@@ -162,13 +166,14 @@ user's name. If the gateway doesn't answer, the call is refused.
 | Token checks | **Real.** Signature (asymmetric only), issuer, audience, expiry and scope, against a real identity provider in CI on every pull request |
 | Discovery (resource metadata, 401 and 403 challenges) | **Real**, by the MCP SDK, tested |
 | Identity provider | authentik in the compose stack, instead of a hosted tenant. It has no client self-registration and ignores the `resource` parameter, so the client is pre-registered and the audience is the application ([decision record 0002](docs/decisions/0002-oauth-resource-server-with-a-pre-registered-client.md)) |
-| Browser sign-in (authorization code + PKCE) | **Configured, not yet exercised.** The tests get tokens the way a script does, with a user's app password |
+| Browser sign-in (authorization code + PKCE) | **Run once by hand** with the MCP Inspector against authentik (2026-10-13). Not automated: the tests get tokens the way a script does, with a user's app password |
 | `make up` without an identity provider | **Open on purpose** for local use: `ALLOW_ANONYMOUS=true`, port bound to `127.0.0.1` |
-| Account linking, the encrypted store, token refresh | **Real code, tested against a stand-in.** The browser flow, the identity check, encryption at rest and refresh rotation are all exercised, with Atlassian's and the identity provider's HTTP replaced by a fake built from their documentation |
-| Jira and Confluence read tools | **Real code, mocked Atlassian.** Never run against a real site yet. Scopes and response shapes are the likeliest surprises |
-| Write and destructive tools | **Real code, mocked Atlassian.** The allow-list, the scope challenge and the confirmation are exercised with the SDK's own client; the calls to Jira go to the stand-in |
+| Account linking, the encrypted store, token refresh | **Real code, tested against a stand-in,** with Atlassian's and the identity provider's HTTP replaced by a fake built from their documentation. **Linking was also run once against a real site** and found a bug the stand-in could not: the sign-in code was redeemed under the wrong host name (fixed, with a test). A refresh was not among the things checked in that run |
+| Jira and Confluence read tools | **Real code, mocked Atlassian in the tests.** `jira_search` and `confluence_search` were run once against a real site as the signed-in user. `jira_get_issue` and `confluence_get_page` were not |
+| Write and destructive tools | **Real code, mocked Atlassian. Not run against a real site.** The allow-list, the scope challenge and the confirmation are exercised with the SDK's own client; the calls to Jira go to the stand-in |
+| `atlassian_unlink` | **Real code, tested against the stand-in.** Written after the live run showed the need; not yet run live itself |
 | The confirmation | **Real**, by the MCP SDK: the question is sent to the client, not answered by the model. A client that answers confirmations automatically would defeat it; that is the client's choice to make |
-| Governed by the AI gateway's policy | **Real client, tested against a stand-in** for the gateway's `POST /v1/authorize`; the gateway's side is tested in [its own repo](https://github.com/AndrewTtofi/ai-gateway). The two have not been run together |
+| Governed by the AI gateway's policy | **Real client, tested against a stand-in** for the gateway's `POST /v1/authorize`; the gateway's side is tested in [its own repo](https://github.com/AndrewTtofi/ai-gateway). **The two were run together once** (2026-10-13): each live call was an `allow` in the gateway's decision log under the user's name. In that run the user was added to the gateway's directory by hand, not synced from the identity provider |
 | Audit record and rate limits | **Real.** A row and a log line per call, without content; per-user limits in memory |
 
 ## Design decisions and trade-offs
@@ -197,6 +202,14 @@ need Postgres and a shared lock for refreshes.
 
 **One refresh at a time per user.** Atlassian's refresh tokens work once, so concurrent
 refreshes would strand a caller. The new pair is saved before it is used.
+
+**A user can unlink, and the policy can't stop them.** Atlassian fixes a grant to the
+products and scopes present when the user consented, so a later change needs a new
+consent; `atlassian_unlink` deletes the caller's own grant and the next call offers a
+link. It is the one Atlassian tool the gateway is not asked about. *Trade-off:* it
+deletes the server's copy only. Atlassian documents no call for an app to revoke the grant itself; the
+user does that under Connected apps.
+([0007](docs/decisions/0007-a-user-can-unlink-their-own-account.md))
 
 **Writing is off until someone turns it on, tool by tool.** A write tool that isn't in
 `WRITE_TOOLS` isn't offered at all, so a model can't be talked into calling it.
