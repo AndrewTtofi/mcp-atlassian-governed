@@ -261,6 +261,28 @@ async def test_concurrent_calls_refresh_once(fake: FakeAtlassian, store: Store) 
     assert fake.issued == 1 and {g.access_token for g in found} == {"at-1"}
 
 
+async def test_unlinking_during_a_refresh_still_unlinks(
+    fake: FakeAtlassian, store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    atlassian = client(fake)
+    grants = Grants(store, atlassian)
+    await store.save_grant(grant(expires_at=time.time() - 5))
+    refresh, unlinking = atlassian.refresh, []
+
+    async def refresh_while_the_user_unlinks(token: str) -> Any:
+        tokens = await refresh(token)
+        unlinking.append(asyncio.create_task(grants.forget("user-alice")))
+        await asyncio.sleep(0.05)  # time for the delete to run, if nothing made it wait
+        return tokens
+
+    monkeypatch.setattr(atlassian, "refresh", refresh_while_the_user_unlinks)
+    await grants.current("user-alice")
+    # The refresh stored its new pair, and only then was the grant deleted: without the
+    # shared lock the delete would have come first and the user would still be linked.
+    assert await unlinking[0] is True
+    assert await store.grant("user-alice") is None
+
+
 async def test_a_dead_refresh_token_means_linking_again(fake: FakeAtlassian, store: Store) -> None:
     grants = Grants(store, client(fake))
     await store.save_grant(grant(expires_at=time.time() - 5, refresh_token="rt-revoked"))
@@ -569,6 +591,36 @@ def test_a_grant_atlassian_revoked_is_dropped_and_the_user_told(
         assert result.get("isError") is True and "no longer valid" in text(result)
         assert "at-secret-value" not in json.dumps(result)
         assert "open this link" in text(alice.call("jira_get_issue", key="OPS-12")).lower()
+
+
+def test_a_user_unlinks_their_own_account_and_links_again(
+    http: TestClient, idp: Idp, fake: FakeAtlassian, store: Store
+) -> None:
+    asyncio.run(store.save_grant(grant()))
+    asyncio.run(store.save_grant(grant(subject="user-bob")))
+    with http:
+        alice = Session(http, idp.token())
+        gone = alice.call("atlassian_unlink")["structuredContent"]
+        assert gone["unlinked"] is True and "Connected apps" in gone["note"]
+        assert not fake.requests  # the server's own copy: nothing is asked of Atlassian
+        assert alice.call("server_status")["structuredContent"]["atlassian"] == "not linked"
+
+        # The next call hands out a link, and the new consent replaces the old grant.
+        refused = alice.call("jira_get_issue", key="OPS-12")
+        assert browse(http, fake, link_url(refused)).status_code == 200
+        assert alice.call("jira_get_issue", key="OPS-12")["structuredContent"]["key"] == "OPS-12"
+        assert fake.requests[-1].headers["authorization"] == "Bearer at-1"
+
+        assert alice.call("atlassian_unlink")["structuredContent"]["unlinked"] is True
+        again = alice.call("atlassian_unlink")
+        assert again.get("isError") is not True  # nothing to remove is not a failure
+        assert again["structuredContent"]["unlinked"] is False
+    # Only ever the caller's own grant, and each time is on the record.
+    assert asyncio.run(store.grant("user-bob")) is not None
+    unlinks = [r for r in asyncio.run(store.audit_rows()) if r["event"] == "tool:atlassian_unlink"]
+    assert [(r["subject"], r["kind"], r["outcome"]) for r in unlinks] == [
+        ("user-alice", "account", "ok")
+    ] * 3
 
 
 def test_what_the_user_may_not_see_is_an_error_not_a_leak(

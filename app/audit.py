@@ -25,8 +25,9 @@ from app.store import Store
 
 log = logging.getLogger("mcp.audit")
 WINDOW_SECONDS = 60.0
-# Tools about this server itself, not about Atlassian: not a policy question.
-UNGOVERNED = frozenset({"server_status"})
+# Tools about this server itself, not about Atlassian: not a policy question. A user can
+# always withdraw their own grant, above all when the policy no longer lets them use it.
+UNGOVERNED = frozenset({"server_status", "atlassian_unlink"})
 # What a person is told. The gateway's own reason stays in the gateway's log.
 REFUSALS = {
     "gateway_unavailable": "The policy service can't be reached, so this was not allowed. "

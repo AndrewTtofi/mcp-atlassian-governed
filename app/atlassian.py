@@ -227,5 +227,11 @@ class Grants:
             await self.store.save_grant(fresh)
             return fresh
 
-    async def forget(self, subject: str) -> None:
-        await self.store.delete_grant(subject)
+    async def forget(self, subject: str) -> bool:
+        """Delete a user's grant. True if there was one. Under the same lock as a refresh:
+        a refresh in flight would otherwise store its new pair after the delete, and the
+        user would still be linked."""
+        async with self._locks.setdefault(subject, asyncio.Lock()):
+            had = await self.store.grant(subject) is not None
+            await self.store.delete_grant(subject)
+            return had
