@@ -48,7 +48,7 @@ services:
 
   # authentik's own database, on the Postgres major its own compose file ships with.
   authentik-db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: authentik
       POSTGRES_PASSWORD: authentik
