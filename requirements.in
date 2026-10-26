@@ -1,7 +1,7 @@
 # Runtime dependencies. Pinned with hashes in requirements.txt: `make lock`.
 mcp==2.3.0
-pydantic-settings==2.15.0
+pydantic-settings==2.16.0
 uvicorn==0.54.0
 # Token verification. Both also arrive with the SDK; named here because this code imports them.
-httpx2==2.13.1
+httpx2==2.15.1
 pyjwt[crypto]==2.15.1
