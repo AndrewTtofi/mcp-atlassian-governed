@@ -12,7 +12,7 @@
 # AUTHENTIK_BOOTSTRAP_TOKEN (see .env.example).
 # Dev only: plain HTTP, and the admin API is published on localhost.
 x-authentik: &authentik
-  image: ghcr.io/goauthentik/server:2026.8.3
+  image: ghcr.io/goauthentik/server:2026.8.5
   environment:
     AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
     AUTHENTIK_POSTGRESQL__HOST: authentik-db
